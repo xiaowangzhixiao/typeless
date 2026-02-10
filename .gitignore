@@ -1,0 +1,21 @@
+.env
+*.pyc
+__pycache__/
+*.log
+*.wav
+.DS_Store
+.vscode/
+.idea/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# uv
+.cache/
+uv.lock
+.python-version

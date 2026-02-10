@@ -1,0 +1,61 @@
+# 应用配置
+app:
+  name: "Typeless Mac"
+  version: "0.1.0"
+  hotkey: "cmd+shift+space"  # 全局快捷键
+
+# ASR 配置
+asr:
+  model_size: "tiny"  # tiny, base, small
+  language: "zh"      # zh, en, auto
+  device: "cpu"       # cpu or cuda
+  compute_type: "int8"  # int8, float16, float32
+
+# LLM 配置
+llm:
+  provider: "ollama"  # openrouter 或 ollama
+  
+  # OpenRouter 配置（当 provider=openrouter 时使用）
+  model: "anthropic/claude-3.5-sonnet"
+  
+  # Ollama 配置（当 provider=ollama 时使用）
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "qwen2.5:3b"  # 推荐: qwen2.5:3b, llama3.2:3b, mistral:7b
+  
+  max_tokens: 1000
+  temperature: 0.3
+  timeout: 30
+  
+  # 提示词模板
+  system_prompt: |
+    你是一个专业的语音文本润色助手。用户会给你语音识别后的原始文本，你需要：
+    1. 去除语气词（嗯、啊、那个、就是等）
+    2. 去除重复和口吃片段
+    3. 修正改口（保留最终想表达的内容）
+    4. 适当添加标点符号
+    5. 保持原意，使文本更清晰可读
+    
+    直接输出润色后的文本，不要添加任何解释或前缀。
+
+# 录音配置
+audio:
+  sample_rate: 16000
+  channels: 1
+  dtype: "int16"
+  silence_duration: 2.0  # 静音多少秒后自动停止（秒）
+  silence_threshold: 500  # 静音判断阈值
+  max_duration: 60  # 最大录音时长（秒）
+
+# UI 配置
+ui:
+  show_window: false  # 禁用状态窗口（macOS tkinter 兼容性问题）
+  window_opacity: 0.9
+  font_size: 14
+  
+# 功能开关
+features:
+  auto_paste: true  # 自动粘贴到光标位置
+  show_original: false  # 是否显示原始识别文本
+  offline_mode: false  # 离线模式（不使用 LLM）
+  save_history: false  # 是否保存历史记录
