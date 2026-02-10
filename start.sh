@@ -61,17 +61,46 @@ fi
 
 echo "✅ 依赖同步完成"
 
-# 下载 Whisper 模型（如果需要）
+# Whisper 预热配置（默认由应用按 preload_strategy 加载）
 echo ""
-echo "🔍 检查 Whisper 模型..."
-CACHE_DIR="$HOME/.cache/huggingface/hub"
-if [ ! -d "$CACHE_DIR" ] || [ -z "$(ls -A "$CACHE_DIR" 2>/dev/null)" ]; then
-    echo "📥 首次运行，正在下载 Whisper tiny 模型（约 75MB）..."
-    echo "   这可能需要几分钟，取决于网络速度..."
-    uv run python3 -c "from faster_whisper import WhisperModel; WhisperModel('tiny', device='cpu')" 2>&1 | grep -v "Warning"
-    echo "✅ 模型下载完成"
+echo "🔍 检查 Whisper 配置..."
+ASR_CONFIG=$(uv run python3 - <<'PY'
+import os
+import yaml
+
+config = yaml.safe_load(open("config.yaml", "r", encoding="utf-8")) or {}
+asr = config.get("asr", {})
+model = asr.get("model_size", "tiny")
+cache_dir = os.path.expanduser(asr.get("cache_dir", "~/.cache/whisper"))
+print(f"{model}|{cache_dir}")
+PY
+)
+ASR_MODEL="${ASR_CONFIG%%|*}"
+ASR_CACHE_DIR="${ASR_CONFIG#*|}"
+export ASR_MODEL
+export ASR_CACHE_DIR
+
+echo "📌 Whisper 模型: $ASR_MODEL"
+echo "📌 Whisper 缓存: $ASR_CACHE_DIR"
+
+if [ "${PREWARM_ASR:-0}" = "1" ]; then
+    echo "🔥 PREWARM_ASR=1，启动前预热 Whisper 模型..."
+    uv run python3 - <<'PY'
+import os
+from faster_whisper import WhisperModel
+
+model = os.environ.get("ASR_MODEL", "tiny")
+cache_dir = os.environ.get("ASR_CACHE_DIR", os.path.expanduser("~/.cache/whisper"))
+WhisperModel(model, device="cpu", download_root=cache_dir)
+print("Whisper 预热完成")
+PY
 else
-    echo "✅ 模型已存在"
+    if [ -d "$ASR_CACHE_DIR" ] && [ -n "$(ls -A "$ASR_CACHE_DIR" 2>/dev/null)" ]; then
+        echo "✅ 已检测到 Whisper 缓存（将按 preload_strategy 加载）"
+    else
+        echo "ℹ️  未执行启动前预热（将按 preload_strategy 加载）"
+        echo "   如需预热请运行: PREWARM_ASR=1 ./start.sh"
+    fi
 fi
 
 # 检查 LLM 配置

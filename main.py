@@ -4,6 +4,7 @@ Typeless Mac - AI 语音输入法主程序
 import os
 import sys
 import logging
+import threading
 import time
 import yaml
 from pathlib import Path
@@ -82,14 +83,41 @@ class TypelessApp:
                 model_size=asr_config['model_size'],
                 device=asr_config['device'],
                 compute_type=asr_config['compute_type'],
-                language=asr_config['language']
+                language=asr_config['language'],
+                cache_dir=asr_config.get('cache_dir', '~/.cache/whisper')
             )
-            # 预加载模型
-            self.asr_engine.load_model()
+            preload_strategy = asr_config.get('preload_strategy', 'eager').lower()
+            if preload_strategy not in {'lazy', 'background', 'eager'}:
+                logger.warning(f"未知的 ASR preload_strategy: {preload_strategy}，回退为 eager")
+                preload_strategy = 'eager'
+
+            logger.info(
+                f"ASR 预加载策略: {preload_strategy}，缓存目录: {asr_config.get('cache_dir', '~/.cache/whisper')}"
+            )
+
+            if preload_strategy == 'eager':
+                logger.info("ASR 预加载模式: eager（启动时同步加载）")
+                self.asr_engine.load_model()
+            elif preload_strategy == 'background':
+                logger.info("ASR 预加载模式: background（后台加载，不阻塞启动）")
+
+                def _warmup_asr_model():
+                    try:
+                        self.asr_engine.load_model()
+                    except Exception as e:
+                        logger.warning(f"ASR 后台预热失败，将在首次识别时重试: {e}")
+
+                threading.Thread(
+                    target=_warmup_asr_model,
+                    daemon=True,
+                    name="asr-preload"
+                ).start()
+            else:
+                logger.info("ASR 预加载模式: lazy（首次识别时再加载）")
             
             # LLM 处理器
             llm_config = self.config['llm']
-            provider = llm_config.get('provider', 'openrouter')
+            provider = os.getenv('LLM_PROVIDER', llm_config.get('provider', 'openrouter')).lower()
             
             logger.info(f"初始化 LLM 处理器（Provider: {provider}）...")
             
@@ -98,11 +126,12 @@ class TypelessApp:
                 if not api_key:
                     logger.error("未设置 OPENROUTER_API_KEY 环境变量")
                     sys.exit(1)
+                openrouter_model = os.getenv('DEFAULT_MODEL', llm_config.get('model', 'anthropic/claude-3.5-sonnet'))
                 
                 self.llm_processor = LLMProcessor(
                     provider='openrouter',
                     api_key=api_key,
-                    model=llm_config['model'],
+                    model=openrouter_model,
                     system_prompt=llm_config['system_prompt'],
                     max_tokens=llm_config['max_tokens'],
                     temperature=llm_config['temperature'],
@@ -111,11 +140,13 @@ class TypelessApp:
             
             elif provider == 'ollama':
                 ollama_config = llm_config.get('ollama', {})
+                ollama_model = os.getenv('OLLAMA_MODEL', ollama_config.get('model', 'qwen3:0.6b'))
+                ollama_base_url = os.getenv('OLLAMA_BASE_URL', ollama_config.get('base_url', 'http://localhost:11434'))
                 
                 self.llm_processor = LLMProcessor(
                     provider='ollama',
-                    model=ollama_config.get('model', 'qwen2.5:3b'),
-                    ollama_base_url=ollama_config.get('base_url', 'http://localhost:11434'),
+                    model=ollama_model,
+                    ollama_base_url=ollama_base_url,
                     system_prompt=llm_config['system_prompt'],
                     max_tokens=llm_config['max_tokens'],
                     temperature=llm_config['temperature'],
@@ -197,7 +228,6 @@ class TypelessApp:
         logger.info("⏸ 停止录音")
         
         # 在新线程中处理，避免阻塞快捷键监听
-        import threading
         thread = threading.Thread(target=self.process_audio, daemon=True)
         thread.start()
     
@@ -260,7 +290,7 @@ class TypelessApp:
                     self.status_window.update_message("⌨️ 输入中...")
                 
                 logger.info("⌨️ 自动输入文本")
-                time.sleep(0.3)  # 等待用户切换回目标应用
+                time.sleep(0.6)  # 等待快捷键按键释放并回到目标输入焦点
                 self.input_handler.paste_text(final_text)
             
             # 完成

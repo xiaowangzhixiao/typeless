@@ -39,21 +39,23 @@ class InputHandler:
             
             # 将文本复制到剪贴板
             pyperclip.copy(text)
-            
+
             # 等待一小段时间确保复制完成
-            time.sleep(0.1)
-            
+            time.sleep(0.12)
+
             # 模拟 Cmd+V 粘贴
             with self.keyboard.pressed(Key.cmd):
                 self.keyboard.press('v')
                 self.keyboard.release('v')
+            logger.info("已触发 Cmd+V")
             
-            logger.info("文本已粘贴")
+            logger.info("文本已粘贴（已发送粘贴按键）")
             
             # 等待粘贴完成后恢复原剪贴板（可选）
-            time.sleep(0.2)
+            time.sleep(1.0)
             try:
                 pyperclip.copy(original_clipboard)
+                logger.info("已恢复原剪贴板")
             except:
                 pass
             

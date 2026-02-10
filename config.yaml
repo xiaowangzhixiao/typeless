@@ -6,10 +6,12 @@ app:
 
 # ASR 配置
 asr:
-  model_size: "tiny"  # tiny, base, small
+  model_size: "large-v3-turbo"  # tiny, base, small, medium, large-v3-turbo
   language: "zh"      # zh, en, auto
   device: "cpu"       # cpu or cuda
   compute_type: "int8"  # int8, float16, float32
+  preload_strategy: "eager"  # lazy, background, eager
+  cache_dir: "~/.cache/whisper"
 
 # LLM 配置
 llm:
@@ -21,7 +23,7 @@ llm:
   # Ollama 配置（当 provider=ollama 时使用）
   ollama:
     base_url: "http://localhost:11434"
-    model: "qwen2.5:3b"  # 推荐: qwen2.5:3b, llama3.2:3b, mistral:7b
+    model: "qwen3:0.6b"  # 推荐: qwen3:0.6b, qwen3:8b, llama3.1:latest
   
   max_tokens: 1000
   temperature: 0.3

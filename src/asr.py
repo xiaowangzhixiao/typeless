@@ -3,6 +3,8 @@ ASR 模块 - 使用 faster-whisper 进行本地语音识别
 """
 import os
 import logging
+import threading
+import time
 from typing import Optional
 from faster_whisper import WhisperModel
 
@@ -13,42 +15,70 @@ class ASREngine:
     """语音识别引擎"""
     
     def __init__(self, model_size: str = "tiny", device: str = "cpu", 
-                 compute_type: str = "int8", language: str = "zh"):
+                 compute_type: str = "int8", language: str = "zh",
+                 cache_dir: str = "~/.cache/whisper"):
         """
         初始化 ASR 引擎
         
         Args:
-            model_size: 模型大小 (tiny, base, small, medium, large)
+            model_size: 模型大小 (tiny, base, small, medium, large-v3-turbo, large)
             device: 计算设备 (cpu, cuda)
             compute_type: 计算类型 (int8, float16, float32)
             language: 主要语言代码 (zh, en, auto)
+            cache_dir: 模型缓存目录
         """
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
         self.language = None if language == "auto" else language
+        self.cache_dir = os.path.expanduser(cache_dir)
         self.model: Optional[WhisperModel] = None
+        self._model_lock = threading.Lock()
         
-        logger.info(f"初始化 ASR 引擎: model={model_size}, device={device}")
+        logger.info(
+            f"初始化 ASR 引擎: model={model_size}, device={device}, cache_dir={self.cache_dir}"
+        )
     
     def load_model(self):
         """加载模型（首次使用时会自动下载）"""
         if self.model is not None:
             logger.info("模型已加载，跳过")
             return
-        
-        try:
-            logger.info(f"正在加载 Whisper 模型: {self.model_size}...")
-            self.model = WhisperModel(
-                self.model_size,
-                device=self.device,
-                compute_type=self.compute_type,
-                download_root=os.path.expanduser("~/.cache/whisper")
-            )
-            logger.info("模型加载成功")
-        except Exception as e:
-            logger.error(f"模型加载失败: {e}")
-            raise
+
+        with self._model_lock:
+            if self.model is not None:
+                logger.info("模型已加载，跳过")
+                return
+
+            started_at = time.perf_counter()
+            try:
+                logger.info(f"正在加载 Whisper 模型: {self.model_size}...")
+                try:
+                    # 优先从本地缓存加载，避免每次启动都等待远程校验。
+                    self.model = WhisperModel(
+                        self.model_size,
+                        device=self.device,
+                        compute_type=self.compute_type,
+                        download_root=self.cache_dir,
+                        local_files_only=True
+                    )
+                    elapsed = time.perf_counter() - started_at
+                    logger.info(f"模型已从本地缓存加载成功，耗时 {elapsed:.2f}s")
+                except Exception as cache_error:
+                    logger.warning(f"本地缓存不可用，尝试联网下载模型: {cache_error}")
+                    self.model = WhisperModel(
+                        self.model_size,
+                        device=self.device,
+                        compute_type=self.compute_type,
+                        download_root=self.cache_dir,
+                        local_files_only=False
+                    )
+                    elapsed = time.perf_counter() - started_at
+                    logger.info(f"模型下载并加载成功，耗时 {elapsed:.2f}s")
+            except Exception as e:
+                elapsed = time.perf_counter() - started_at
+                logger.error(f"模型加载失败（耗时 {elapsed:.2f}s）: {e}")
+                raise
     
     def transcribe(self, audio_file: str) -> dict:
         """

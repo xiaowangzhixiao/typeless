@@ -162,6 +162,7 @@ class LLMProcessor:
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": raw_text}
             ],
+            "think": False,
             "stream": False,
             "options": {
                 "temperature": self.temperature,
@@ -174,8 +175,26 @@ class LLMProcessor:
             json=payload,
             timeout=self.timeout
         )
-        
-        response.raise_for_status()
+
+        if response.status_code >= 400:
+            error_detail = ""
+            try:
+                error_detail = response.json().get("error", "")
+            except ValueError:
+                error_detail = response.text.strip()
+
+            if response.status_code == 404 and "not found" in error_detail.lower():
+                raise requests.exceptions.HTTPError(
+                    f"Ollama 模型不存在: {self.model}。请先运行 `ollama pull {self.model}`，"
+                    f"或改用已安装模型（`ollama list`）。",
+                    response=response
+                )
+
+            raise requests.exceptions.HTTPError(
+                f"Ollama API 返回 {response.status_code}: {error_detail or response.reason}",
+                response=response
+            )
+
         data = response.json()
         
         polished_text = data["message"]["content"].strip()
@@ -237,7 +256,7 @@ if __name__ == "__main__":
     print("测试 Ollama")
     print("=" * 60)
     
-    ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+    ollama_model = os.getenv("OLLAMA_MODEL", "qwen3:0.6b")
     ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     
     try:
