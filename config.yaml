@@ -51,7 +51,7 @@ audio:
 
 # UI 配置
 ui:
-  show_window: false  # 禁用状态窗口（macOS tkinter 兼容性问题）
+  show_window: true  # 启用状态窗口
   window_opacity: 0.9
   font_size: 14
   

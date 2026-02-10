@@ -4,6 +4,7 @@ Typeless Mac - AI 语音输入法主程序
 import os
 import sys
 import logging
+import signal
 import threading
 import time
 import yaml
@@ -59,6 +60,9 @@ class TypelessApp:
         # 状态
         self.is_recording = False
         self.is_processing = False
+        self._shutdown_lock = threading.Lock()
+        self._is_shutting_down = False
+        self._stop_event = threading.Event()
         
         self.initialize_components()
     
@@ -212,7 +216,7 @@ class TypelessApp:
         self.is_recording = True
         
         if self.status_window:
-            self.status_window.show("🎤 录音中...")
+            self.status_window.show_recording()
         
         logger.info("🎤 开始录音")
         self.recorder.start_recording()
@@ -223,7 +227,7 @@ class TypelessApp:
         self.is_processing = True
         
         if self.status_window:
-            self.status_window.update_message("⏸ 停止录音...")
+            self.status_window.show_processing("停止录音")
         
         logger.info("⏸ 停止录音")
         
@@ -251,7 +255,7 @@ class TypelessApp:
             
             # 语音识别
             if self.status_window:
-                self.status_window.update_message("🎯 识别中...")
+                self.status_window.show_processing("识别中")
             
             logger.info("🎯 开始语音识别")
             asr_result = self.asr_engine.transcribe_numpy(audio_float)
@@ -276,7 +280,7 @@ class TypelessApp:
                 logger.info("离线模式，跳过润色")
             else:
                 if self.status_window:
-                    self.status_window.update_message("🤖 润色中...")
+                    self.status_window.show_processing("润色中")
                 
                 logger.info("🤖 开始文本润色")
                 llm_result = self.llm_processor.polish(raw_text)
@@ -287,7 +291,9 @@ class TypelessApp:
             # 自动输入
             if self.config['features']['auto_paste']:
                 if self.status_window:
-                    self.status_window.update_message("⌨️ 输入中...")
+                    self.status_window.complete_processing()
+                    time.sleep(0.2)
+                    self.status_window.update_message("输入中")
                 
                 logger.info("⌨️ 自动输入文本")
                 time.sleep(0.6)  # 等待快捷键按键释放并回到目标输入焦点
@@ -295,7 +301,7 @@ class TypelessApp:
             
             # 完成
             if self.status_window:
-                self.status_window.update_message("✅ 完成")
+                self.status_window.update_message("完成")
                 time.sleep(0.8)
                 self.status_window.hide()
             
@@ -328,15 +334,17 @@ class TypelessApp:
             logger.info("按快捷键开始使用，按 Ctrl+C 退出")
             logger.info("=" * 60)
             
-            # 如果有 UI，在主线程运行 tkinter 主循环
-            if self.status_window and self.status_window.root:
+            # 如果有 UI，在主线程运行 UI 事件循环
+            if self.status_window:
                 logger.info("在主线程运行 UI")
                 self.status_window.run_mainloop()
+                if not self._is_shutting_down:
+                    self.shutdown()
             else:
                 # 无 UI 模式，保持运行
                 logger.info("无 UI 模式")
-                while True:
-                    time.sleep(1)
+                while not self._stop_event.is_set():
+                    time.sleep(0.2)
                 
         except KeyboardInterrupt:
             logger.info("\n正在退出...")
@@ -344,13 +352,25 @@ class TypelessApp:
     
     def shutdown(self):
         """关闭应用"""
+        with self._shutdown_lock:
+            if self._is_shutting_down:
+                return
+            self._is_shutting_down = True
+
         logger.info("关闭应用...")
+        self._stop_event.set()
         
         if self.hotkey_listener:
-            self.hotkey_listener.stop()
+            try:
+                self.hotkey_listener.stop()
+            except Exception as e:
+                logger.warning(f"停止快捷键监听失败: {e}")
         
         if self.status_window:
-            self.status_window.stop()
+            try:
+                self.status_window.stop()
+            except Exception as e:
+                logger.warning(f"停止状态窗口失败: {e}")
         
         logger.info("再见！👋")
 
@@ -358,6 +378,14 @@ class TypelessApp:
 def main():
     """主函数"""
     app = TypelessApp()
+
+    def _handle_exit_signal(signum, _frame):
+        sig_name = signal.Signals(signum).name
+        logger.info(f"接收到信号 {sig_name}，准备退出...")
+        app.shutdown()
+
+    signal.signal(signal.SIGINT, _handle_exit_signal)
+    signal.signal(signal.SIGTERM, _handle_exit_signal)
     app.run()
 
 
