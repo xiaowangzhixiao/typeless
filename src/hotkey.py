@@ -43,14 +43,36 @@ class HotkeyListener:
             logger.error("未设置回调函数")
             return
         
+        # pynput的GlobalHotKeys需要特殊的格式
+        # 将 <cmd>+<shift>+space 转换为正确格式
+        # 特殊键映射
+        special_keys_map = {
+            'space': keyboard.Key.space,
+            'enter': keyboard.Key.enter,
+            'return': keyboard.Key.enter,
+            'tab': keyboard.Key.tab,
+            'esc': keyboard.Key.esc,
+            'escape': keyboard.Key.esc,
+            'backspace': keyboard.Key.backspace,
+        }
+        
+        # 解析快捷键
+        hotkey_parsed = self.hotkey
+        for key_name, key_obj in special_keys_map.items():
+            if key_name in hotkey_parsed:
+                # 将 'space' 替换为 '<space>'
+                hotkey_parsed = hotkey_parsed.replace(key_name, f'<{key_obj.name}>')
+        
+        logger.info(f"解析快捷键: {self.hotkey} -> {hotkey_parsed}")
+        
         hotkeys = {
-            self.hotkey: self.callback
+            hotkey_parsed: self.callback
         }
         
         self.listener = keyboard.GlobalHotKeys(hotkeys)
         self.listener.start()
         
-        logger.info(f"快捷键监听已启动: {self.hotkey}")
+        logger.info(f"快捷键监听已启动: {hotkey_parsed}")
     
     def stop(self):
         """停止监听"""
